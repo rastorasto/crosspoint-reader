@@ -8,6 +8,8 @@ extern HalClock halClock;  // Singleton
 
 class HalClock {
   bool _available = false;
+  // No RTC chip: report the system clock once SNTP has set it (see TrustedTime).
+  bool _software = false;
   mutable Rtc _sdkRtc;
   // The RTC keeps UTC; local time comes from newlib's localtime_r under the
   // POSIX TZ rule set via setTimezone(), so zones with DST are correct

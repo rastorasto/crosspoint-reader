@@ -43,7 +43,8 @@ class HalPowerManager {
   // wakeOnHeldButton: arm the wake without waiting for the power button's
   // release, so a press that is still down wakes the device straight back up
   // through the normal power-button wake path.
-  void startDeepSleep(HalGPIO& gpio, bool wakeOnHeldButton = false) const;
+  // keepPower: X4/X3 keep the battery latch on so a timer wakeup can run (Clock sleep screen).
+  void startDeepSleep(HalGPIO& gpio, bool wakeOnHeldButton = false, bool keepPower = false) const;
 
 #if FREEINK_DEVICE_PICCO
   // While USB powers the device, light-sleep instead of deep sleep (deep sleep

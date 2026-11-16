@@ -23,6 +23,8 @@
 #include <limits>
 #include <string>
 
+#include "ClockFace.h"
+#include "HalClock.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "activities/reader/ReaderUtils.h"
@@ -739,6 +741,9 @@ void SleepActivity::onEnter() {
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK):
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK):
+      return renderClockSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
       return renderCustomSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER):
@@ -1110,6 +1115,19 @@ void SleepActivity::renderLastScreenSleepScreen() const {
   } else {
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   }
+}
+
+void SleepActivity::renderClockSleepScreen() const {
+  struct tm localTm;
+  const bool valid = halClock.localTime(localTm);
+  const time_t now = time(nullptr);
+  // The clock is always landscape, independent of the reader orientation.
+  clockface::prepareSleep(CrossPointSettings::ORIENTATION::LANDSCAPE_CCW, SETTINGS.clockFormat == 1,
+                          SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK);
+  clockface::drawFace(renderer, now, valid);
+  clockface::setShownMinute(valid ? static_cast<int32_t>(now / 60) : -1);
+  renderer.displayBuffer(kSleepClean);
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 }
 
 void SleepActivity::renderBlankSleepScreen() const {

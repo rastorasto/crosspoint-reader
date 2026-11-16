@@ -36,6 +36,9 @@ constexpr const char* PREFS_KEY = "floor";
 // cannot reopen an expired loan. Updated from the SNTP callback's lwIP task as
 // well as the main task; 64-bit atomics are not lock-free on the C3.
 int64_t ramFloor = 0;
+constexpr uint32_t SYNCED_MAGIC = 0x5E7C10C7;
+// RTC_NOINIT survives deep sleep and the silent restart after Wi-Fi; lost on power-off.
+RTC_NOINIT_ATTR uint32_t syncedMagic;
 portMUX_TYPE ramFloorLock = portMUX_INITIALIZER_UNLOCKED;
 
 // Raises the in-RAM floor to `value` if higher; returns the resulting floor.
@@ -63,7 +66,10 @@ void writeFloor(const int64_t value) {
 }
 
 // SNTP sync callback (lwIP task context; Preferences/NVS is mutex-guarded).
-void onTimeSynced(struct timeval*) { note(); }
+void onTimeSynced(struct timeval*) {
+  syncedMagic = SYNCED_MAGIC;
+  note();
+}
 
 void configureSntp() {
   // SNTP uses UTC epochs regardless of the display timezone. Copy TZ before
@@ -131,8 +137,18 @@ bool syncNow(const uint32_t timeoutMs) {
     delay(100);
   }
   const bool synced = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
-  if (synced) note();
+  if (synced) {
+    syncedMagic = SYNCED_MAGIC;
+    note();
+  }
   return synced;
+}
+
+bool syncedSincePowerOn() { return syncedMagic == SYNCED_MAGIC; }
+
+void markSynced() {
+  syncedMagic = SYNCED_MAGIC;
+  note();
 }
 
 int64_t trustedNow() {

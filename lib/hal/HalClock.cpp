@@ -1,6 +1,7 @@
 #include "HalClock.h"
 
 #include <Logging.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #include <esp_sntp.h>
 #include <time.h>
@@ -9,7 +10,11 @@ HalClock halClock;  // Singleton instance
 
 void HalClock::begin() {
   _available = _sdkRtc.begin();
-  LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
+  LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found, using software clock");
+  if (!_available) {
+    _available = true;
+    _software = true;
+  }
 }
 
 namespace {
@@ -36,6 +41,12 @@ void HalClock::setTimezone(const char* posixTz) {
 
 bool HalClock::localTime(struct tm& out) const {
   if (!_available) return false;
+  if (_software) {
+    if (!trustedtime::syncedSincePowerOn()) return false;
+    const time_t now = time(nullptr);
+    localtime_r(&now, &out);
+    return true;
+  }
 
   const unsigned long now = millis();
   if (_lastPollMs == 0 || (now - _lastPollMs) >= CLOCK_POLL_MS) {
@@ -97,6 +108,13 @@ bool HalClock::syncFromNTP() {
   for (int i = 0; i < maxAttempts; i++) {
     if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
       time_t now = time(nullptr);
+      if (_software) {
+        // Mark the clock as set; there is no RTC chip to write.
+        trustedtime::markSynced();
+        setTimezone(savedTz);
+        LOG_INF("CLK", "Software clock set by NTP");
+        return true;
+      }
       struct tm timeinfo;
       gmtime_r(&now, &timeinfo);
 

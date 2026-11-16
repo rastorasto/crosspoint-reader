@@ -31,7 +31,7 @@ constexpr TimezoneInfo TABLE[] = {
     {"Azores", "AZOT1AZOST,M3.5.0/0,M10.5.0/1", -4},
     {"UTC", "UTC0", 0},
     {"London / Dublin / Lisbon", "GMT0BST,M3.5.0/1,M10.5.0", 0},
-    {"Berlin / Paris / Madrid / Rome", "CET-1CEST,M3.5.0,M10.5.0/3", 4},
+    {"Prague / Berlin / Paris / Rome", "CET-1CEST,M3.5.0,M10.5.0/3", 4},
     {"Lagos / Algiers", "WAT-1", 4},
     {"Athens / Helsinki / Kyiv", "EET-2EEST,M3.5.0/3,M10.5.0/4", 8},
     {"Cairo", "EET-2EEST,M4.5.5/0,M10.5.4/24", 8},
@@ -130,6 +130,10 @@ const TimezoneInfo* table() { return TABLE; }
 size_t count() { return TABLE_COUNT; }
 
 uint8_t activeIndex() {
+  // Custom build: the clock always runs on Prague time (CET/CEST).
+  for (size_t i = 0; i < TABLE_COUNT; i++) {
+    if (strncmp(TABLE[i].name, "Prague", 6) == 0) return static_cast<uint8_t>(i);
+  }
   if (SETTINGS.clockTimezone < TABLE_COUNT) return SETTINGS.clockTimezone;
   // Legacy migration: the retired quarter-hour setting was a FIXED offset,
   // and users in DST regions set their current wall offset (the daylight one,
@@ -166,7 +170,7 @@ void formatOffset(const uint8_t index, char* buf, const size_t bufSize) {
 
 void applyToClock() {
   const TimezoneInfo& tz = TABLE[activeIndex()];
-  if (SETTINGS.clockDst == CrossPointSettings::CLOCK_DST_AUTO) {
+  if (true) {  // Custom build: summer/winter time is always automatic.
     halClock.setTimezone(tz.posixTz);
     return;
   }

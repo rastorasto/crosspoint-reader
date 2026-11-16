@@ -121,6 +121,9 @@ class HalDisplay {
   bool combinesGrayscaleBase() const;
 
   // Runtime geometry passthrough
+  // Fast differential refresh of a byte-aligned panel window against the
+  // controller's previous-frame plane; never promoted to a clean refresh.
+  void displayWindow(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool turnOffScreen = false);
   uint16_t getDisplayWidth() const;
   uint16_t getDisplayHeight() const;
   uint16_t getDisplayWidthBytes() const;

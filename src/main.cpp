@@ -30,6 +30,7 @@
 #include <cstdarg>
 #include <cstring>
 
+#include "ClockFace.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
@@ -519,7 +520,52 @@ void enterDeepSleep(bool fromTimeout = false) {
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio, wakeOnHeldButton);
+  // Clock mode keeps the battery latch on so the next-minute timer can fire
+  // (SleepActivity armed it). Quick Resume overrides the selected screen.
+  const bool clockSleep = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK ||
+                          SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK) &&
+                         !isQuickResumeSleep;
+  powerManager.startDeepSleep(gpio, wakeOnHeldButton, clockSleep);
+}
+
+// Timer wake from the Clock sleep screen: redraw the minute and sleep again.
+// Skips SD, settings and activities; everything needed is in RTC memory.
+[[noreturn]] void runClockTimerWake() {
+  clockface::applySavedTimezone();
+  const time_t now = time(nullptr);
+  const int32_t minute = static_cast<int32_t>(now / 60);
+  const bool valid = trustedtime::syncedSincePowerOn();
+  const int32_t shown = clockface::shownMinute();
+
+  if (!valid || minute != shown) {
+    display.begin(true);
+    renderer.begin();
+    renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
+    uint16_t fastCount = clockface::fastRefreshCount();
+    if (valid && shown >= 0 && fastCount < 59) {
+      // The controller lost its previous-frame (RED) plane in deep sleep. Write
+      // the shown minute into RED without a refresh, then diff to the new one.
+      // A full-panel window refresh is always a fast diff; displayBuffer() would
+      // promote this first paint after controller init to a clean HALF (blink).
+      clockface::drawFace(renderer, static_cast<time_t>(shown) * 60, true);
+      display.cleanupGrayscaleBuffers(display.getFrameBuffer());
+      clockface::drawFace(renderer, now, true);
+      display.displayWindow(0, 0, display.getDisplayWidth(), display.getDisplayHeight(), true);
+      clockface::setFastRefreshCount(fastCount + 1);
+    } else {
+      // Clean refresh about once an hour to clear e-ink ghosting.
+      clockface::drawFace(renderer, now, valid);
+      display.displayBuffer(HalDisplay::HALF_REFRESH, true);
+      clockface::setFastRefreshCount(0);
+    }
+    clockface::setShownMinute(valid ? minute : -1);
+    display.deepSleep();
+  }
+
+  clockface::armNextMinute();
+  powerManager.startDeepSleep(gpio, false, true);
+  for (;;) {
+  }
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -595,6 +641,8 @@ void setup() {
 
   gpio.begin();
   powerManager.begin();
+
+  if (clockface::isTimerWake()) runClockTimerWake();
 
   // Board TX-power ceiling. It can only be set once WiFi has started, so it is
   // applied on every STA/AP start rather than at each place that brings WiFi up.

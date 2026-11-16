@@ -20,6 +20,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
     values[CrossPointSettings::QUICK_RESUME] = StrId::STR_QUICK_RESUME;
     values[CrossPointSettings::TRANSPARENT_CUSTOM] = StrId::STR_TRANSPARENT;
     values[CrossPointSettings::COVER_TRANSPARENT] = StrId::STR_COVER_TRANSPARENT;
+    values[CrossPointSettings::CLOCK] = StrId::STR_CLOCK;
+    values[CrossPointSettings::CLOCK_DARK] = StrId::STR_CLOCK_DARK;
     return values;
   }();
   static constexpr auto STATUS_BAR_CLOCK_VALUES = [] {

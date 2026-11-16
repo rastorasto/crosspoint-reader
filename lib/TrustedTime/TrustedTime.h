@@ -49,5 +49,9 @@ bool syncNow(uint32_t timeoutMs);
 // this boot or restored from the floor, so a backward clock step cannot undo
 // an expiry. Callers enforcing a date fail closed on 0.
 int64_t trustedNow();
+// True once SNTP has set the clock since the last power-on (kept through deep sleep).
+bool syncedSincePowerOn();
+// Record that SNTP set the clock (for callers that ran their own SNTP exchange).
+void markSynced();
 
 }  // namespace trustedtime
