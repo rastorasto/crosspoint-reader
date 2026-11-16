@@ -187,8 +187,7 @@ uint8_t catLevel(const uint8_t* levels, const int x, const int y) {
   return (pgm_read_byte(levels + y * rowBytes + x / 4) >> (6 - 2 * (x % 4))) & 0x3;
 }
 
-// B/W base of the cat: every non-white level is black. paintCatGray() then
-// lightens the gray levels with the panel's grayscale pass.
+// The cat is pre-dithered to pure black/white (levels 0 and 3).
 void drawCat(const GfxRenderer& r, const bool dark) {
   const uint8_t* levels = dark ? clockart::CAT_DARK : clockart::CAT_LIGHT;
   const int cx = catX(r);
@@ -285,36 +284,6 @@ void drawFace(GfxRenderer& renderer, const time_t now, const bool timeValid) {
   }
   if (state.dark) renderer.invertScreen();
   drawCat(renderer, state.dark);
-}
-
-void paintCatGray(GfxRenderer& renderer) {
-  // Overlay grayscale: the B/W frame on the panel is the base; the two planes
-  // mark which black pixels become dark (1) or light (2) gray.
-  const uint8_t* levels = state.dark ? clockart::CAT_DARK : clockart::CAT_LIGHT;
-  if (!renderer.storeBwBuffer()) return;
-  ReaderUtils::applyOrientation(renderer, state.orientation);
-  const int cx = catX(renderer);
-  const int cy = catY(renderer);
-  for (const auto plane : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
-    const bool msb = plane == GfxRenderer::GRAYSCALE_MSB;
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(plane);
-    for (int y = 0; y < clockart::CAT_H; y++) {
-      for (int x = 0; x < clockart::CAT_W; x++) {
-        const uint8_t lv = catLevel(levels, x, y);
-        const bool write = msb ? (lv == 1 || lv == 2) : lv == 1;
-        if (write) renderer.drawPixel(cx + x, cy + y, false);
-      }
-    }
-    if (msb) {
-      renderer.copyGrayscaleMsbBuffers();
-    } else {
-      renderer.copyGrayscaleLsbBuffers();
-    }
-  }
-  renderer.displayGrayBuffer();
-  renderer.setRenderMode(GfxRenderer::BW);
-  renderer.restoreBwBuffer();
 }
 
 }  // namespace clockface

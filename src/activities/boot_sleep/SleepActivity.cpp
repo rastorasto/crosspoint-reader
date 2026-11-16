@@ -1131,7 +1131,6 @@ void SleepActivity::renderClockSleepScreen() const {
   clockface::drawFace(renderer, now, valid);
   clockface::setShownMinute(valid ? static_cast<int32_t>(now / 60) : -1);
   renderer.displayBuffer(kSleepClean);
-  clockface::paintCatGray(renderer);
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 }
 
