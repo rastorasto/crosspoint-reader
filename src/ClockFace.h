@@ -34,6 +34,9 @@ void armNextMinute();
 // refresh the panel). Applies the saved orientation.
 void drawFace(GfxRenderer& renderer, time_t now, bool timeValid);
 
+// After the B/W face is on the panel, add the cat's gray levels (grayscale pass).
+void paintCatGray(GfxRenderer& renderer);
+
 // Timer-wake path helpers.
 void applySavedTimezone();
 uint8_t savedOrientation();

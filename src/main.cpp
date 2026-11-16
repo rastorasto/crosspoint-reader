@@ -559,6 +559,7 @@ void enterDeepSleep(bool fromTimeout = false) {
       // Clean refresh about once an hour to clear e-ink ghosting.
       clockface::drawFace(renderer, now, valid);
       display.displayBuffer(HalDisplay::HALF_REFRESH, true);
+      clockface::paintCatGray(renderer);
       clockface::setFastRefreshCount(0);
     }
     clockface::setShownMinute(valid ? minute : -1);

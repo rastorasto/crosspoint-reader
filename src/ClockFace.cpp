@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "ClockArt.h"
 #include "CrossPointSettings.h"
 #include "HalStorage.h"
 #include "activities/reader/ReaderUtils.h"
@@ -159,60 +160,118 @@ void flushBatteryLog() {
 }
 void setFastRefreshCount(const uint16_t count) { state.fastRefreshes = count; }
 
+namespace {
+// Draw a packed 1-bit bitmap (MSB-first rows, set bit = draw) in `state` color.
+void drawBits(const GfxRenderer& r, const uint8_t* bits, const int w, const int h, const int x0, const int y0,
+              const bool state) {
+  const int rowBytes = (w + 7) / 8;
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      if (pgm_read_byte(bits + y * rowBytes + x / 8) & (0x80 >> (x % 8))) r.drawPixel(x0 + x, y0 + y, state);
+    }
+  }
+}
+
+void drawLeftCentered(const GfxRenderer& r, const int panelW, const int y, const char* text,
+                      const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
+  const int w = r.getTextWidth(UI_12_FONT_ID, text, style);
+  r.drawText(UI_12_FONT_ID, (panelW - w) / 2, y, text, true, style);
+}
+
+// Cat position on the right side of the landscape face.
+int catX(const GfxRenderer& r) { return r.getScreenWidth() - clockart::CAT_W - 22; }
+int catY(const GfxRenderer& r) { return (r.getScreenHeight() - clockart::CAT_H) / 2; }
+
+uint8_t catLevel(const uint8_t* levels, const int x, const int y) {
+  const int rowBytes = (clockart::CAT_W + 3) / 4;
+  return (pgm_read_byte(levels + y * rowBytes + x / 4) >> (6 - 2 * (x % 4))) & 0x3;
+}
+
+// B/W base of the cat: every non-white level is black. paintCatGray() then
+// lightens the gray levels with the panel's grayscale pass.
+void drawCat(const GfxRenderer& r, const bool dark) {
+  const uint8_t* levels = dark ? clockart::CAT_DARK : clockart::CAT_LIGHT;
+  const int cx = catX(r);
+  const int cy = catY(r);
+  for (int y = 0; y < clockart::CAT_H; y++) {
+    for (int x = 0; x < clockart::CAT_W; x++) {
+      r.drawPixel(cx + x, cy + y, catLevel(levels, x, y) < 3);
+    }
+  }
+}
+}  // namespace
+
 static void drawFaceContent(GfxRenderer& renderer, const time_t now, const bool timeValid) {
   ReaderUtils::applyOrientation(renderer, state.orientation);
   renderer.clearScreen();
 
   const int sw = renderer.getScreenWidth();
   const int sh = renderer.getScreenHeight();
-  const bool landscape = sw > sh;
-
-  // Size four digits and a colon to fill most of the width.
-  const int digitW = sw * (landscape ? 17 : 16) / 100;
-  const int digitH = digitW * 9 / 5;
-  const int thick = digitW / 6;
-  const int gap = digitW / 6;
-  const int colonW = thick;
-  const int totalW = 4 * digitW + 4 * gap + colonW;
-  const int dateLineH = renderer.getLineHeight(UI_12_FONT_ID);
-  const int blockH = digitH + dateLineH * 2;
-  const int x0 = (sw - totalW) / 2;
-  const int y0 = (sh - blockH) / 2;
+  // Left panel holds the time, date and word; the cat takes the right side.
+  const int panelW = sw - clockart::CAT_W - 40;
+  const int lh = renderer.getLineHeight(UI_12_FONT_ID);
 
   if (!timeValid) {
-    renderer.drawCenteredText(UI_12_FONT_ID, sh / 2 - dateLineH, "Clock not set", true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_12_FONT_ID, sh / 2 + dateLineH / 2, "Settings > System > Clock > Sync now");
+    drawLeftCentered(renderer, panelW, sh / 2 - lh, "Clock not set", EpdFontFamily::BOLD);
+    drawLeftCentered(renderer, panelW, sh / 2 + lh / 2, "Settings > System > Clock > Sync now");
     return;
   }
 
   struct tm localTm;
   localtime_r(&now, &localTm);
+  // Japanese date, e.g. 11月16日（月）, as glyph indices into DATE_GLYPHS.
+  constexpr uint8_t G_MONTH = 10, G_DAY = 11, G_OPEN = 17, G_CLOSE = 18;
+  constexpr uint8_t WEEKDAY[7] = {G_DAY, G_MONTH, 12, 13, 14, 15, 16};  // 日月火水木金土
+  uint8_t dateGlyphs[12];
+  int dateLen = 0;
+  const int month = localTm.tm_mon + 1;
+  if (month >= 10) dateGlyphs[dateLen++] = month / 10;
+  dateGlyphs[dateLen++] = month % 10;
+  dateGlyphs[dateLen++] = G_MONTH;
+  if (localTm.tm_mday >= 10) dateGlyphs[dateLen++] = localTm.tm_mday / 10;
+  dateGlyphs[dateLen++] = localTm.tm_mday % 10;
+  dateGlyphs[dateLen++] = G_DAY;
+  dateGlyphs[dateLen++] = G_OPEN;
+  dateGlyphs[dateLen++] = WEEKDAY[localTm.tm_wday];
+  dateGlyphs[dateLen++] = G_CLOSE;
+  int dateW = 0;
+  for (int i = 0; i < dateLen; i++) dateW += clockart::DATE_GLYPHS[dateGlyphs[i]].w;
+  const int dateH = clockart::DATE_GLYPHS[0].h;
+
+  const int digitW = panelW * 16 / 100;
+  const int digitH = digitW * 9 / 5;
+  const int thick = digitW / 6;
+  const int gap = digitW / 6;
+  const int colonW = thick;
+  const int totalW = 4 * digitW + 4 * gap + colonW;
+  const int blockH = digitH + 14 + dateH;
+  const int x0 = (panelW - totalW) / 2;
+  int y = (sh - blockH) / 2;
+
   int hour = localTm.tm_hour;
   if (state.use12Hour) {
     hour %= 12;
     if (hour == 0) hour = 12;
   }
-
   int x = x0;
-  if (hour >= 10 || !state.use12Hour) {
-    drawDigit(renderer, x, y0, digitW, digitH, thick, hour / 10);
-  }
+  if (hour >= 10 || !state.use12Hour) drawDigit(renderer, x, y, digitW, digitH, thick, hour / 10);
   x += digitW + gap;
-  drawDigit(renderer, x, y0, digitW, digitH, thick, hour % 10);
+  drawDigit(renderer, x, y, digitW, digitH, thick, hour % 10);
   x += digitW + gap;
-  renderer.fillRect(x, y0 + digitH * 3 / 10, colonW, colonW);
-  renderer.fillRect(x, y0 + digitH * 7 / 10 - colonW, colonW, colonW);
+  renderer.fillRect(x, y + digitH * 3 / 10, colonW, colonW);
+  renderer.fillRect(x, y + digitH * 7 / 10 - colonW, colonW, colonW);
   x += colonW + gap;
-  drawDigit(renderer, x, y0, digitW, digitH, thick, localTm.tm_min / 10);
+  drawDigit(renderer, x, y, digitW, digitH, thick, localTm.tm_min / 10);
   x += digitW + gap;
-  drawDigit(renderer, x, y0, digitW, digitH, thick, localTm.tm_min % 10);
+  drawDigit(renderer, x, y, digitW, digitH, thick, localTm.tm_min % 10);
+  y += digitH + 10;
 
-  char dateLine[48];
-  strftime(dateLine, sizeof(dateLine), "%A, %d %B %Y", &localTm);
-  renderer.drawCenteredText(UI_12_FONT_ID, y0 + digitH + dateLineH, dateLine, true, EpdFontFamily::BOLD);
-  if (state.use12Hour) {
-    renderer.drawCenteredText(UI_12_FONT_ID, y0 + digitH + dateLineH * 2 + dateLineH / 2,
-                              localTm.tm_hour >= 12 ? "PM" : "AM");
+  y += 14;
+  int gx = (panelW - dateW) / 2;
+  for (int i = 0; i < dateLen; i++) {
+    const clockart::Glyph& g = clockart::DATE_GLYPHS[dateGlyphs[i]];
+    drawBits(renderer, g.bits, g.w, g.h, gx, y, true);
+    gx += g.w;
   }
 }
 
@@ -222,10 +281,40 @@ void drawFace(GfxRenderer& renderer, const time_t now, const bool timeValid) {
     char battery[12];
     snprintf(battery, sizeof(battery), faceUsb ? "%u%% USB" : "%u%%", facePercent);
     const int w = renderer.getTextWidth(UI_12_FONT_ID, battery);
-    const int lh = renderer.getLineHeight(UI_12_FONT_ID);
-    renderer.drawText(UI_12_FONT_ID, renderer.getScreenWidth() - w - 16, renderer.getScreenHeight() - lh - 8, battery);
+    renderer.drawText(UI_12_FONT_ID, renderer.getScreenWidth() - w - 16, 10, battery);
   }
   if (state.dark) renderer.invertScreen();
+  drawCat(renderer, state.dark);
+}
+
+void paintCatGray(GfxRenderer& renderer) {
+  // Overlay grayscale: the B/W frame on the panel is the base; the two planes
+  // mark which black pixels become dark (1) or light (2) gray.
+  const uint8_t* levels = state.dark ? clockart::CAT_DARK : clockart::CAT_LIGHT;
+  if (!renderer.storeBwBuffer()) return;
+  ReaderUtils::applyOrientation(renderer, state.orientation);
+  const int cx = catX(renderer);
+  const int cy = catY(renderer);
+  for (const auto plane : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+    const bool msb = plane == GfxRenderer::GRAYSCALE_MSB;
+    renderer.clearScreen(0x00);
+    renderer.setRenderMode(plane);
+    for (int y = 0; y < clockart::CAT_H; y++) {
+      for (int x = 0; x < clockart::CAT_W; x++) {
+        const uint8_t lv = catLevel(levels, x, y);
+        const bool write = msb ? (lv == 1 || lv == 2) : lv == 1;
+        if (write) renderer.drawPixel(cx + x, cy + y, false);
+      }
+    }
+    if (msb) {
+      renderer.copyGrayscaleMsbBuffers();
+    } else {
+      renderer.copyGrayscaleLsbBuffers();
+    }
+  }
+  renderer.displayGrayBuffer();
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.restoreBwBuffer();
 }
 
 }  // namespace clockface
