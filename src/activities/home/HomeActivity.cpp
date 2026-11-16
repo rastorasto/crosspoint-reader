@@ -27,7 +27,7 @@
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Library, File transfer, Settings
+  int count = 5;  // File Browser, Library, File transfer, Settings, Desk Clock
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -327,6 +327,9 @@ void HomeActivity::loop() {
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
         break;
+      case HomeMenuItem::DESK_CLOCK:
+        onDeskClockToggle();
+        break;
       default:
         break;
     }
@@ -524,9 +527,12 @@ void HomeActivity::render(RenderLock&&) {
                           std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically
+  const bool deskClockOn = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK ||
+                           SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK;
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
-                                        tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
+                                        tr(STR_SETTINGS_TITLE),
+                                        deskClockOn ? tr(STR_DESK_CLOCK_ON) : tr(STR_DESK_CLOCK_OFF)};
+  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings, Recent};
 
   if (hasLibrarySlot()) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
@@ -578,3 +584,21 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
+
+// Desk Clock toggle: switch the sleep screen between the clock (light or dark,
+// as last used) and the custom sleep images.
+void HomeActivity::onDeskClockToggle() {
+  const uint8_t current = SETTINGS.sleepScreen;
+  if (current == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK ||
+      current == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK) {
+    APP_STATE.deskClockMode = current;
+    SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM;
+  } else {
+    SETTINGS.sleepScreen = APP_STATE.deskClockMode == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK
+                               ? CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK
+                               : CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK;
+  }
+  SETTINGS.saveToFile();
+  APP_STATE.saveToFile();
+  requestUpdate();
+}

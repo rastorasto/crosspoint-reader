@@ -25,6 +25,8 @@
 
 #include "ClockFace.h"
 #include "HalClock.h"
+#include "HalGPIO.h"
+#include "HalPowerManager.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "activities/reader/ReaderUtils.h"
@@ -1124,6 +1126,8 @@ void SleepActivity::renderClockSleepScreen() const {
   // The clock is always landscape, independent of the reader orientation.
   clockface::prepareSleep(CrossPointSettings::ORIENTATION::LANDSCAPE_CCW, SETTINGS.clockFormat == 1,
                           SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK_DARK);
+  clockface::setBattery(static_cast<uint8_t>(powerManager.getBatteryPercentage()), gpio.isUsbConnected());
+  if (valid) clockface::recordBattery(static_cast<int32_t>(now / 60));
   clockface::drawFace(renderer, now, valid);
   clockface::setShownMinute(valid ? static_cast<int32_t>(now / 60) : -1);
   renderer.displayBuffer(kSleepClean);

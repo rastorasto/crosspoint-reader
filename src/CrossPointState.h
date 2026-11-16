@@ -21,6 +21,8 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
+  // Clock sleep mode restored by the home-screen Desk Clock toggle.
+  uint8_t deskClockMode = 9;  // CrossPointSettings::CLOCK
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
   void toJson(JsonDocument& doc) const;

@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "HalStorage.h"
 #include "activities/reader/ReaderUtils.h"
 #include "fontIds.h"
 
@@ -30,6 +31,22 @@ struct ClockState {
   char tz[64];
 };
 RTC_DATA_ATTR ClockState state;
+
+// Battery samples taken during Clock sleep. 144 samples = 24 h at 10 min.
+constexpr int BATTERY_SAMPLES = 144;
+constexpr int BATTERY_INTERVAL_MIN = 10;
+struct BatterySample {
+  int32_t minute;  // epoch / 60
+  uint8_t percent;
+  uint8_t usb;
+};
+RTC_DATA_ATTR BatterySample batterySamples[BATTERY_SAMPLES];
+RTC_DATA_ATTR uint16_t batteryHead;   // next write slot
+RTC_DATA_ATTR uint16_t batteryCount;  // valid samples
+RTC_DATA_ATTR uint32_t batteryMagic;
+constexpr uint32_t BATTERY_MAGIC = 0xBA77C10C;
+uint8_t facePercent = 0;
+bool faceUsb = false;
 
 // Seven-segment layout: a=top, b=top-right, c=bottom-right, d=bottom,
 // e=bottom-left, f=top-left, g=middle.
@@ -95,6 +112,51 @@ bool use12Hour() { return state.use12Hour != 0; }
 int32_t shownMinute() { return state.magic == STATE_MAGIC ? state.shownMinute : -1; }
 void setShownMinute(const int32_t minute) { state.shownMinute = minute; }
 uint16_t fastRefreshCount() { return state.fastRefreshes; }
+
+void setBattery(const uint8_t percent, const bool usb) {
+  facePercent = percent;
+  faceUsb = usb;
+}
+
+void recordBattery(const int32_t minute) {
+  if (batteryMagic != BATTERY_MAGIC) {
+    batteryMagic = BATTERY_MAGIC;
+    batteryHead = 0;
+    batteryCount = 0;
+  }
+  if (batteryCount > 0) {
+    const int last = (batteryHead + BATTERY_SAMPLES - 1) % BATTERY_SAMPLES;
+    if (minute - batterySamples[last].minute < BATTERY_INTERVAL_MIN) return;
+  }
+  batterySamples[batteryHead] = {minute, facePercent, static_cast<uint8_t>(faceUsb ? 1 : 0)};
+  batteryHead = (batteryHead + 1) % BATTERY_SAMPLES;
+  if (batteryCount < BATTERY_SAMPLES) batteryCount++;
+}
+
+void flushBatteryLog() {
+  if (batteryMagic != BATTERY_MAGIC || batteryCount == 0) return;
+  constexpr const char* path = "/.crosspoint/clock_battery.csv";
+  const bool isNew = !Storage.exists(path);
+  HalFile file = Storage.open(path, O_WRONLY | O_CREAT | O_APPEND);
+  if (!file) return;
+  if (isNew) {
+    const char header[] = "local_time,battery_percent,usb\n";
+    file.write(header, sizeof(header) - 1);
+  }
+  const int start = (batteryHead + BATTERY_SAMPLES - batteryCount) % BATTERY_SAMPLES;
+  for (int i = 0; i < batteryCount; i++) {
+    const BatterySample& s = batterySamples[(start + i) % BATTERY_SAMPLES];
+    const time_t t = static_cast<time_t>(s.minute) * 60;
+    struct tm localTm;
+    localtime_r(&t, &localTm);
+    char line[48];
+    const int n = snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d,%u,%u\n", localTm.tm_year + 1900,
+                           localTm.tm_mon + 1, localTm.tm_mday, localTm.tm_hour, localTm.tm_min, s.percent, s.usb);
+    if (n > 0) file.write(line, static_cast<size_t>(n));
+  }
+  file.close();
+  batteryCount = 0;
+}
 void setFastRefreshCount(const uint16_t count) { state.fastRefreshes = count; }
 
 static void drawFaceContent(GfxRenderer& renderer, const time_t now, const bool timeValid) {
@@ -156,6 +218,13 @@ static void drawFaceContent(GfxRenderer& renderer, const time_t now, const bool 
 
 void drawFace(GfxRenderer& renderer, const time_t now, const bool timeValid) {
   drawFaceContent(renderer, now, timeValid);
+  if (facePercent > 0) {
+    char battery[12];
+    snprintf(battery, sizeof(battery), faceUsb ? "%u%% USB" : "%u%%", facePercent);
+    const int w = renderer.getTextWidth(UI_12_FONT_ID, battery);
+    const int lh = renderer.getLineHeight(UI_12_FONT_ID);
+    renderer.drawText(UI_12_FONT_ID, renderer.getScreenWidth() - w - 16, renderer.getScreenHeight() - lh - 8, battery);
+  }
   if (state.dark) renderer.invertScreen();
 }
 

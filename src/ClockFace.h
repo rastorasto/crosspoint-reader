@@ -45,4 +45,12 @@ void setShownMinute(int32_t minute);
 uint16_t fastRefreshCount();
 void setFastRefreshCount(uint16_t count);
 
+// Battery shown in the corner of the face (set before drawFace()).
+void setBattery(uint8_t percent, bool usb);
+// Record a battery sample every 10 minutes of Clock sleep (RTC memory ring).
+void recordBattery(int32_t minute);
+// Append recorded samples to /.crosspoint/clock_battery.csv and clear them.
+// Call on a normal boot once the SD card is mounted.
+void flushBatteryLog();
+
 }  // namespace clockface

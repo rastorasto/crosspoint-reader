@@ -537,6 +537,9 @@ void enterDeepSleep(bool fromTimeout = false) {
   const bool valid = trustedtime::syncedSincePowerOn();
   const int32_t shown = clockface::shownMinute();
 
+  clockface::setBattery(static_cast<uint8_t>(powerManager.getBatteryPercentage()), gpio.isUsbConnected());
+  if (valid) clockface::recordBattery(minute);
+
   if (!valid || minute != shown) {
     display.begin(true);
     renderer.begin();
@@ -693,6 +696,7 @@ void setup() {
   HalSystem::checkPanic();
 
   APP_STATE.loadFromFile();
+  clockface::flushBatteryLog();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
   const bool isPersistedSleepWake = isSleepWake && !APP_STATE.showBootScreen;
 
